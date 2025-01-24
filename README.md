@@ -13,6 +13,6 @@ cp .nildb.config.json.example .nildb.config.json
 
 Run the agent and give it a prompt:
 ```shell
-python nillion_worker.py --prompt "upload a whimsical poem about citizen band radios to nildb"
+python nillion_worker.py
 ```
 
