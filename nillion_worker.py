@@ -180,7 +180,7 @@ def upload_to_nildb(content: str, **kwargs) -> Tuple[FunctionResultStatus, str, 
         nildb = NilDBAPI()
         my_id = str(uuid.uuid4())
 
-        if nildb.data_upload( payload={"_id": my_id, "team": CONFIG["team"], "text": content}):
+        if nildb.data_upload( payload={"_id": my_id, "contest": CONFIG["contest"], "team": CONFIG["team"], "text": content}):
             return FunctionResultStatus.DONE, f"Successfully uploaded the {content}", {}
     return FunctionResultStatus.FAILED, "No object specified", {}
 
