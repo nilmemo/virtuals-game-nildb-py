@@ -1,8 +1,5 @@
 # nildb on virtuals G-A-M-E
 
-> [!Tip]
-> Set up nearai tools and account by following [these instructions](https://docs.near.ai/agents/quickstart/#pre-requisites)
-
 ```shell
 uv venv
 source .venv/bin/activate
