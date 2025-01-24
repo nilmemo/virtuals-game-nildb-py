@@ -20,14 +20,25 @@ load_dotenv()
 
 GAME_API_KEY = os.environ["GAME_API_KEY"]
 HUGGINGFACE_API_KEY = os.environ["HUGGINGFACE_API_KEY"]
-PROMPT = "You are a whimsical creative poet and renowned author of childrens literature"
+PROMPT = """
+Write a poem about the beauty of transformation and renewal, drawing inspiration from nature (e.g., seasons, butterflies, or rivers). The poem should follow these criteria:
 
+Structure: Four quatrains (four-line stanzas).
+Meter: Iambic tetrameter (four iambic feet per line).
+Rhyme Scheme: ABAB for each stanza.
+Content Requirements: Include vivid imagery of a natural process of change, such as leaves falling and regrowing, or a river carving a new path. Incorporate themes of hope and resilience.
+Tone: Reflective and uplifting, with a focus on the positive aspects of transformation.
+The poem should use evocative language and focus on painting a clear mental image for the reader. 
+"""
+
+'''
 parser = ArgumentParser()
 parser.add_argument("--prompt", default="generate a short poem about cute animals")
 args = parser.parse_args()
 value = args.prompt
+'''
 
-TASK = f"{args.prompt}. always upload it to nildb"
+TASK = "generate a poem. Upload the generated poem to nildb"
 
 JSON_TYPE = Dict[str, Union[str, int, float, bool, None, List, Dict]]
 
@@ -135,7 +146,7 @@ def generate_content(plan: str, **kwargs) -> Tuple[FunctionResultStatus, str, di
     messages = [
         {
             "role": "user",
-            "content": f"{PROMPT}. You will generate content and consider {plan}",
+            "content": PROMPT
         }
     ]
 
@@ -200,7 +211,7 @@ action_space = [
 
 worker = Worker(
     api_key=GAME_API_KEY,
-    description=PROMPT,
+    description=f"Worker that will {TASK}",
     instruction=TASK,
     get_state_fn=get_state_fn,
     action_space=action_space,
