@@ -1,0 +1,211 @@
+from argparse import ArgumentParser
+from dotenv import load_dotenv
+from game_sdk.game.worker import Worker
+from game_sdk.game.custom_types import (
+    Function,
+    Argument,
+    FunctionResult,
+    FunctionResultStatus,
+)
+from huggingface_hub import InferenceClient
+import json
+import os
+import requests
+from typing import Union, Dict, List, Tuple
+import uuid
+
+import nilql
+
+load_dotenv()
+
+GAME_API_KEY = os.environ["GAME_API_KEY"]
+HUGGINGFACE_API_KEY = os.environ["HUGGINGFACE_API_KEY"]
+PROMPT = "You are a whimsical creative poet and renowned author of childrens literature"
+
+parser = ArgumentParser()
+parser.add_argument("--prompt", default="generate a short poem about cute animals")
+args = parser.parse_args()
+value = args.prompt
+
+TASK = f"{args.prompt}. always upload it to nildb"
+
+JSON_TYPE = Dict[str, Union[str, int, float, bool, None, List, Dict]]
+
+with open(os.environ.get("NILDB_CONFIG", ".nildb.config.json")) as fh:
+    CONFIG = json.load(fh)
+
+
+class NilDBAPI:
+    def __init__(self):
+        self.nodes = CONFIG["hosts"]
+        self.secret_key = nilql.SecretKey.generate(
+            {"nodes": [{}] * len(CONFIG["hosts"])}, {"store": True}
+        )
+
+    def data_download(self) -> JSON_TYPE:
+        """Download all records in the specified node and schema."""
+        try:
+            for idx, node in enumerate(self.nodes):
+                headers = {
+                    "Authorization": f'Bearer {node["bearer"]}',
+                    "Content-Type": "application/json",
+                }
+
+                body = {"schema": CONFIG["schema_id"], "filter": {}}
+
+                response = requests.post(
+                    f"https://{node['url']}/api/v1/data/read",
+                    headers=headers,
+                    json=body,
+                )
+                print(response.content)
+                assert (
+                    response.status_code == 200
+                ), ("upload failed: " + response.content)
+            return True
+
+        except Exception as e:
+            print(f"Error creating records in node {idx}: {str(e)}")
+            return False
+
+    def data_upload(self, payload: JSON_TYPE) -> bool:
+        """Create/upload records in the specified node and schema."""
+        try:
+            print(json.dumps(payload))
+            payload["text"] = {
+                "$allot": nilql.encrypt(self.secret_key, payload["text"])
+            }
+            payloads = nilql.allot(payload)
+            for idx, shard in enumerate(payloads):
+                node = self.nodes[idx]
+                headers = {
+                    "Authorization": f'Bearer {node["bearer"]}',
+                    "Content-Type": "application/json",
+                }
+
+                body = {"schema": CONFIG["schema_id"], "data": [shard]}
+
+                response = requests.post(
+                    f"https://{node['url']}/api/v1/data/create",
+                    headers=headers,
+                    json=body,
+                )
+
+                assert (
+                    response.status_code == 200
+                    and response.json().get("data", {}).get("errors", []) == []
+                ), ("upload failed: " + response.content)
+            return True
+        except Exception as e:
+            print(f"Error creating records in node {idx}: {str(e)}")
+            return False
+
+def get_state_fn(function_result: FunctionResult, current_state: dict) -> dict:
+    """
+    This function will get called at every step of the agent's execution to form the agent's state.
+    It will take as input the function result from the previous step.
+    """
+    # dict containing info about the function result as implemented in the exectuable
+    info = function_result.info
+
+    # example of fixed state (function result info is not used to change state) - the first state placed here is the initial state
+    init_state = {"objects": []}
+
+    if current_state is None:
+        # at the first step, initialise the state with just the init state
+        new_state = init_state
+    else:
+        # do something wiht the current state input and the function result info
+        new_state = init_state  # this is just an example where the state is static
+
+    return new_state
+
+
+def generate_content(plan: str, **kwargs) -> Tuple[FunctionResultStatus, str, dict]:
+    """
+    Function to generate random phrase or content
+
+    Args:
+        plan: Notation of agent action
+        **kwargs: Additional arguments that might be passed
+    """
+
+    client = InferenceClient(api_key=HUGGINGFACE_API_KEY)
+
+    messages = [
+        {
+            "role": "user",
+            "content": f"{PROMPT}. You will generate content and consider {plan}",
+        }
+    ]
+
+    stream = client.chat.completions.create(
+        model="google/gemma-2-2b-it", 
+    	messages=messages, 
+    	max_tokens=500,
+    	stream=True
+    )
+    
+    result = ''.join([chunk.choices[0].delta.content for chunk in stream])
+
+    if result:
+        return (
+            FunctionResultStatus.DONE,
+            f"Successfully generated the poem: {result}",
+            {},
+        )
+    return FunctionResultStatus.FAILED, "No generation", {}
+
+
+def upload_to_nildb(content: str, **kwargs) -> Tuple[FunctionResultStatus, str, dict]:
+    """
+    Function to upload content to nildb
+
+    Args:
+        content: Text string content to store in nildb
+        **kwargs: Additional arguments that might be passed
+    """
+    if content:
+        nildb = NilDBAPI()
+        my_id = str(uuid.uuid4())
+
+        if nildb.data_upload( payload={"_id": my_id, "team": CONFIG["team"], "text": content}):
+            return FunctionResultStatus.DONE, f"Successfully uploaded the {content}", {}
+    return FunctionResultStatus.FAILED, "No object specified", {}
+
+
+# Action space with all executables
+action_space = [
+    Function(
+        fn_name="generate",
+        fn_description="Generate some creative content",
+        args=[
+            Argument(
+                name="plan", type="task", description="Prompt of reasoning")
+            ],
+        executable=generate_content,
+    ),
+    Function(
+        fn_name="upload",
+        fn_description="Upload to privacy preserving nildb database",
+        args=[
+            Argument(
+                name="content", type="task", description="The source content to upload"
+            )
+        ],
+        executable=upload_to_nildb,
+    ),
+]
+
+
+worker = Worker(
+    api_key=GAME_API_KEY,
+    description=PROMPT,
+    instruction=TASK,
+    get_state_fn=get_state_fn,
+    action_space=action_space,
+)
+
+# interact and instruct the worker to do something
+# worker.run("what would you do to the apple?")
+worker.run(TASK)

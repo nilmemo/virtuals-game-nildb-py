@@ -1,0 +1,4 @@
+game-sdk @ git+https://github.com/game-by-virtuals/game-python.git@5bb47eb28432cc4f0359b7c19116807b5442dc25
+nilql
+huggingface-hub==0.27.1
+python-dotenv==1.0.1
